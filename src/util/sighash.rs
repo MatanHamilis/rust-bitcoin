@@ -585,7 +585,7 @@ impl<R: Deref<Target = Transaction>> SigHashCache<R> {
 
     /// Encode the legacy signing data for any flag type into a given object implementing a
     /// [`std::io::Write`] trait. Internally calls [`Transaction::encode_signing_data_to`]
-    pub fn legacy_encode_signing_data_to<Write: io::Write, U: Into<u32>>(
+    fn legacy_encode_signing_data_to<Write: io::Write, U: Into<u32>>(
         &self,
         mut writer: Write,
         input_index: usize,
@@ -611,6 +611,15 @@ impl<R: Deref<Target = Transaction>> SigHashCache<R> {
         script_pubkey: &Script,
         sighash_type: u32,
     ) -> Result<SigHash, Error> {
+        let (sighash, _) = EcdsaSigHashType::from_u32_consensus(sighash_type).split_anyonecanpay_flag();
+
+        // Special-case sighash_single bug because this is easy enough.
+        if sighash == EcdsaSigHashType::Single && input_index >= self.tx.output.len() {
+            return Ok(SigHash::from_slice(&[1, 0, 0, 0, 0, 0, 0, 0,
+                               0, 0, 0, 0, 0, 0, 0, 0,
+                               0, 0, 0, 0, 0, 0, 0, 0,
+                               0, 0, 0, 0, 0, 0, 0, 0]).expect("This shouldn't panic"))
+        }
         let mut enc = SigHash::engine();
         self.legacy_encode_signing_data_to(&mut enc, input_index, script_pubkey, sighash_type)?;
         Ok(SigHash::from_engine(enc))

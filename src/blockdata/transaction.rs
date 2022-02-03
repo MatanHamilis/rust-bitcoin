@@ -324,7 +324,7 @@ impl Transaction {
     ///
     /// # Panics
     /// Panics if `input_index` is greater than or equal to `self.input.len()`
-    pub fn encode_signing_data_to<Write: io::Write, U: Into<u32>>(
+    pub(crate) fn encode_signing_data_to<Write: io::Write, U: Into<u32>>(
         &self,
         mut writer: Write,
         input_index: usize,
@@ -337,13 +337,7 @@ impl Transaction {
         let (sighash, anyone_can_pay) = EcdsaSigHashType::from_u32_consensus(sighash_type).split_anyonecanpay_flag();
 
         // Special-case sighash_single bug because this is easy enough.
-        if sighash == EcdsaSigHashType::Single && input_index >= self.output.len() {
-            writer.write_all(&[1, 0, 0, 0, 0, 0, 0, 0,
-                               0, 0, 0, 0, 0, 0, 0, 0,
-                               0, 0, 0, 0, 0, 0, 0, 0,
-                               0, 0, 0, 0, 0, 0, 0, 0])?;
-            return Ok(());
-        }
+        assert!(!(sighash == EcdsaSigHashType::Single && input_index >= self.output.len()));
 
         // Build tx to sign
         let mut tx = Transaction {
@@ -410,6 +404,18 @@ impl Transaction {
         script_pubkey: &Script,
         sighash_u32: u32
     ) -> SigHash {
+        assert!(input_index < self.input.len());  // Panic on OOB
+
+        let (sighash, _) = EcdsaSigHashType::from_u32_consensus(sighash_u32).split_anyonecanpay_flag();
+
+        // Special-case sighash_single bug because this is easy enough.
+        if sighash == EcdsaSigHashType::Single && input_index >= self.output.len() {
+            return SigHash::from_slice(&[1, 0, 0, 0, 0, 0, 0, 0,
+                               0, 0, 0, 0, 0, 0, 0, 0,
+                               0, 0, 0, 0, 0, 0, 0, 0,
+                               0, 0, 0, 0, 0, 0, 0, 0]).expect("This shouldn't panic")
+        }
+
         let mut engine = SigHash::engine();
         self.encode_signing_data_to(&mut engine, input_index, script_pubkey, sighash_u32)
             .expect("engines don't error");
